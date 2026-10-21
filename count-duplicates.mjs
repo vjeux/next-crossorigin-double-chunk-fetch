@@ -14,6 +14,13 @@ page.on("request", (request) => {
   requests.set(key, (requests.get(key) ?? 0) + 1);
 });
 await page.goto(`${base}/`, { waitUntil: "networkidle" });
+const ssrTags = await page.evaluate(() => {
+  const tags = [...document.querySelectorAll("script[src]")].filter((s) =>
+    new URL(s.getAttribute("src"), location.href).pathname.includes("/_next/static/chunks/"),
+  );
+  return { total: tags.length, missing: tags.filter((s) => !s.hasAttribute("crossorigin")).length };
+});
+console.log(`server-rendered chunk <script> tags on /: ${ssrTags.total}, ${ssrTags.missing} without crossorigin`);
 const bootDoubles = [...requests].filter(([, n]) => n > 1);
 console.log(`boot: ${requests.size} chunk URLs requested, ${bootDoubles.length} requested twice or more`);
 requests.clear();
@@ -36,4 +43,14 @@ const tags = await page.evaluate(() => {
 });
 console.log(`script tags: ${tags.length} chunk URLs with two or more <script> tags`);
 for (const line of tags) console.log(`  ${line}`);
+const direct = await browser.newPage();
+await direct.goto(`${base}/about`, { waitUntil: "networkidle" });
+const directTags = await direct.evaluate(() =>
+  [...document.querySelectorAll("script[src]")]
+    .filter((s) => new URL(s.getAttribute("src"), location.href).pathname.includes("/_next/static/chunks/"))
+    .map((s) => `${new URL(s.getAttribute("src"), location.href).pathname} async=${s.hasAttribute("async")} crossorigin=${s.getAttribute("crossorigin")}`),
+);
+const directMissing = directTags.filter((t) => t.endsWith("crossorigin=null"));
+console.log(`direct load of /about: ${directTags.length} chunk <script> tags, ${directMissing.length} without crossorigin`);
+for (const line of directMissing) console.log(`  ${line}`);
 await browser.close();
